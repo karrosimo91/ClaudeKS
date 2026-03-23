@@ -2,13 +2,16 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 
+// Load .env file if present
+try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Zendesk configuration
-const ZENDESK_DOMAIN = 'b2c-innovation.zendesk.com';
-const ZENDESK_EMAIL = 'simone.carroccia@24hassistance.com/token';
-const ZENDESK_TOKEN = 'MSLsnRIbfU43NofdNryRFbVpNRo8zPghtX5SxTEE';
+// Zendesk configuration (from environment or defaults)
+const ZENDESK_DOMAIN = process.env.ZENDESK_DOMAIN || 'b2c-innovation.zendesk.com';
+const ZENDESK_EMAIL = process.env.ZENDESK_EMAIL || 'simone.carroccia@24hassistance.com/token';
+const ZENDESK_TOKEN = process.env.ZENDESK_TOKEN || 'MSLsnRIbfU43NofdNryRFbVpNRo8zPghtX5SxTEE';
 const ZENDESK_BASE = `https://${ZENDESK_DOMAIN}/api/v2`;
 
 const zendesk = axios.create({
