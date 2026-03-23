@@ -30,20 +30,91 @@
       line-height: 1.6;
     }
 
+    /* Login Page */
+    .login-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a365d 0%, #2c5282 50%, #1f73b7 100%);
+    }
+
+    .login-card {
+      background: white;
+      border-radius: 16px;
+      padding: 48px 40px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 420px;
+      width: 90%;
+    }
+
+    .login-card h1 {
+      font-size: 1.6rem;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .login-card p {
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+      font-size: 0.95rem;
+    }
+
+    .btn-microsoft {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 32px;
+      background: #2f2f2f;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      text-decoration: none;
+    }
+
+    .btn-microsoft:hover { background: #1a1a1a; }
+
+    .btn-microsoft svg { width: 20px; height: 20px; }
+
+    .login-logo {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, var(--primary), #2c5282);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 1.8rem;
+      color: white;
+    }
+
+    /* Header */
     .header {
       background: linear-gradient(135deg, var(--primary), #2c5282);
       color: white;
-      padding: 20px 32px;
+      padding: 16px 32px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
-      gap: 16px;
+      gap: 12px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.15);
     }
 
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
     .header h1 {
-      font-size: 1.5rem;
+      font-size: 1.3rem;
       font-weight: 700;
       letter-spacing: -0.02em;
     }
@@ -55,10 +126,10 @@
     }
 
     .header input[type="date"] {
-      padding: 8px 14px;
+      padding: 7px 12px;
       border: 2px solid rgba(255,255,255,0.3);
       border-radius: 8px;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       background: rgba(255,255,255,0.15);
       color: white;
       cursor: pointer;
@@ -70,18 +141,61 @@
     }
 
     .btn-refresh {
-      padding: 8px 18px;
+      padding: 7px 16px;
       border: 2px solid rgba(255,255,255,0.4);
       border-radius: 8px;
       background: rgba(255,255,255,0.15);
       color: white;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       cursor: pointer;
       transition: all 0.2s;
       font-weight: 600;
     }
 
     .btn-refresh:hover { background: rgba(255,255,255,0.3); }
+
+    /* User Bar */
+    .user-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.8rem;
+      color: white;
+      border: 2px solid rgba(255,255,255,0.5);
+    }
+
+    .user-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
+    }
+
+    .btn-logout {
+      padding: 5px 12px;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.8);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+
+    .btn-logout:hover {
+      background: rgba(255,255,255,0.2);
+      color: white;
+    }
 
     .container {
       max-width: 1280px;
@@ -107,7 +221,6 @@
     }
 
     .stat-card:hover { transform: translateY(-2px); }
-
     .stat-card.success { border-left-color: var(--success); }
     .stat-card.warning { border-left-color: var(--warning); }
     .stat-card.danger { border-left-color: var(--danger); }
@@ -207,21 +320,9 @@
       background-position: center;
     }
 
-    .agent-info h3 {
-      font-size: 1rem;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .agent-info .ticket-count {
-      font-size: 0.85rem;
-      color: var(--text-secondary);
-    }
-
-    .ticket-count strong {
-      color: var(--primary);
-      font-size: 1.1rem;
-    }
+    .agent-info h3 { font-size: 1rem; font-weight: 700; color: var(--text); }
+    .agent-info .ticket-count { font-size: 0.85rem; color: var(--text-secondary); }
+    .ticket-count strong { color: var(--primary); font-size: 1.1rem; }
 
     .agent-tickets {
       padding: 12px 20px;
@@ -241,7 +342,6 @@
     }
 
     .ticket-item:last-child { border-bottom: none; }
-
     .ticket-item:hover { opacity: 0.8; }
 
     .ticket-id {
@@ -291,17 +391,13 @@
     }
 
     .pulse {
-      width: 8px;
-      height: 8px;
+      width: 8px; height: 8px;
       background: var(--success);
       border-radius: 50%;
       animation: pulse 2s infinite;
     }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
     /* Loading */
     .loading-overlay {
@@ -316,8 +412,7 @@
     }
 
     .spinner {
-      width: 48px;
-      height: 48px;
+      width: 48px; height: 48px;
       border: 4px solid var(--border);
       border-top-color: var(--primary);
       border-radius: 50%;
@@ -325,14 +420,12 @@
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
-
     .loading-overlay.hidden { display: none; }
 
-    /* Error Toast */
+    /* Toast */
     .toast {
       position: fixed;
-      top: 20px;
-      right: 20px;
+      top: 20px; right: 20px;
       padding: 14px 20px;
       border-radius: 8px;
       color: white;
@@ -357,83 +450,108 @@
     .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
     .empty-state h3 { font-size: 1.2rem; margin-bottom: 8px; color: var(--text); }
 
+    .hidden { display: none !important; }
+
     /* Responsive */
     @media (max-width: 768px) {
-      .header { padding: 16px; }
-      .header h1 { font-size: 1.2rem; }
+      .header { padding: 12px 16px; }
+      .header h1 { font-size: 1.1rem; }
       .container { padding: 16px; }
       .agents-grid { grid-template-columns: 1fr; }
       .stats-row { grid-template-columns: 1fr; }
+      .user-name { display: none; }
     }
   </style>
 </head>
 <body>
 
-<div class="loading-overlay" id="loading">
-  <div class="spinner"></div>
-</div>
-
-<div class="toast error" id="toast"></div>
-
-<div class="header">
-  <h1>Zendesk Agent Dashboard</h1>
-  <div class="header-controls">
-    <input type="date" id="datePicker">
-    <button class="btn-refresh" id="btnRefresh">Aggiorna</button>
+<!-- LOGIN PAGE -->
+<div class="login-page" id="loginPage">
+  <div class="login-card">
+    <div class="login-logo">ZD</div>
+    <h1>Agent Ticket Dashboard</h1>
+    <p>Accedi con il tuo account aziendale Microsoft 365 per visualizzare la dashboard.</p>
+    <a href="/auth/login" class="btn-microsoft">
+      <svg viewBox="0 0 21 21" fill="none"><rect width="10" height="10" fill="#f25022"/><rect x="11" width="10" height="10" fill="#7fba00"/><rect y="11" width="10" height="10" fill="#00a4ef"/><rect x="11" y="11" width="10" height="10" fill="#ffb900"/></svg>
+      Accedi con Microsoft
+    </a>
   </div>
 </div>
 
-<div class="container">
-  <!-- Stats -->
-  <div class="stats-row" id="statsRow">
-    <div class="stat-card">
-      <div class="stat-label">Ticket Risolti</div>
-      <div class="stat-value" id="statTotal">-</div>
-      <div class="stat-detail" id="statTotalDetail"></div>
+<!-- DASHBOARD -->
+<div id="dashboardPage" class="hidden">
+
+  <div class="loading-overlay hidden" id="loading">
+    <div class="spinner"></div>
+  </div>
+
+  <div class="toast error" id="toast"></div>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>Zendesk Agent Dashboard</h1>
     </div>
-    <div class="stat-card success">
-      <div class="stat-label">Top Agent</div>
-      <div class="stat-value" id="statTopAgent">-</div>
-      <div class="stat-detail" id="statTopAgentDetail"></div>
-    </div>
-    <div class="stat-card warning">
-      <div class="stat-label">Tempo Medio Risoluzione</div>
-      <div class="stat-value" id="statAvgTime">-</div>
-      <div class="stat-detail" id="statAvgTimeDetail"></div>
-    </div>
-    <div class="stat-card danger">
-      <div class="stat-label">Per Priorita</div>
-      <div class="stat-value" id="statPriority">-</div>
-      <div class="stat-detail" id="statPriorityDetail"></div>
+    <div class="header-controls">
+      <input type="date" id="datePicker">
+      <button class="btn-refresh" id="btnRefresh">Aggiorna</button>
+      <div class="user-bar" id="userBar">
+        <div class="user-avatar" id="userAvatar" style="background: #5a67d8;"></div>
+        <span class="user-name" id="userName"></span>
+        <a href="/auth/logout" class="btn-logout">Esci</a>
+      </div>
     </div>
   </div>
 
-  <!-- Chart -->
-  <div class="chart-section">
-    <h2>Ticket Risolti per Agente</h2>
-    <div class="chart-container">
-      <canvas id="agentChart"></canvas>
+  <div class="container">
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card">
+        <div class="stat-label">Ticket Risolti</div>
+        <div class="stat-value" id="statTotal">-</div>
+        <div class="stat-detail" id="statTotalDetail"></div>
+      </div>
+      <div class="stat-card success">
+        <div class="stat-label">Top Agent</div>
+        <div class="stat-value" id="statTopAgent">-</div>
+        <div class="stat-detail" id="statTopAgentDetail"></div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-label">Tempo Medio Risoluzione</div>
+        <div class="stat-value" id="statAvgTime">-</div>
+        <div class="stat-detail" id="statAvgTimeDetail"></div>
+      </div>
+      <div class="stat-card danger">
+        <div class="stat-label">Per Priorita</div>
+        <div class="stat-value" id="statPriority">-</div>
+        <div class="stat-detail" id="statPriorityDetail"></div>
+      </div>
     </div>
+
+    <div class="chart-section">
+      <h2>Ticket Risolti per Agente</h2>
+      <div class="chart-container">
+        <canvas id="agentChart"></canvas>
+      </div>
+    </div>
+
+    <h2 class="section-title">Dettaglio per Agente</h2>
+    <div class="agents-grid" id="agentsGrid"></div>
   </div>
 
-  <!-- Agent Cards -->
-  <h2 class="section-title">Dettaglio per Agente</h2>
-  <div class="agents-grid" id="agentsGrid"></div>
-</div>
-
-<div class="footer">
-  <div class="pulse"></div>
-  <span id="footerText">Auto-refresh ogni 5 minuti</span>
+  <div class="footer">
+    <div class="pulse"></div>
+    <span id="footerText">Auto-refresh ogni 5 minuti</span>
+  </div>
 </div>
 
 <script>
   // State
   let currentDate = new Date().toISOString().split('T')[0];
   let chart = null;
-  let refreshTimer = null;
   let agentsMap = {};
 
   // DOM
+  const loginPage = document.getElementById('loginPage');
+  const dashboardPage = document.getElementById('dashboardPage');
   const datePicker = document.getElementById('datePicker');
   const loading = document.getElementById('loading');
   const toast = document.getElementById('toast');
@@ -442,7 +560,45 @@
   datePicker.value = currentDate;
   datePicker.max = new Date().toISOString().split('T')[0];
 
-  // Avatar color from name
+  // ==================== AUTH ====================
+
+  async function checkAuth() {
+    try {
+      const res = await fetch('/auth/me');
+      const data = await res.json();
+
+      if (!data.authEnabled) {
+        // Auth non configurata, mostra dashboard direttamente
+        loginPage.classList.add('hidden');
+        dashboardPage.classList.remove('hidden');
+        document.getElementById('userBar').classList.add('hidden');
+        return true;
+      }
+
+      if (data.user) {
+        // Utente loggato
+        loginPage.classList.add('hidden');
+        dashboardPage.classList.remove('hidden');
+        document.getElementById('userName').textContent = data.user.name;
+        const ini = data.user.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        document.getElementById('userAvatar').textContent = ini;
+        return true;
+      }
+
+      // Non loggato, mostra pagina login
+      loginPage.classList.remove('hidden');
+      dashboardPage.classList.add('hidden');
+      return false;
+    } catch (err) {
+      // Se errore 401, mostra login
+      loginPage.classList.remove('hidden');
+      dashboardPage.classList.add('hidden');
+      return false;
+    }
+  }
+
+  // ==================== UTILS ====================
+
   function avatarColor(name) {
     const colors = ['#e53e3e','#dd6b20','#d69e2e','#38a169','#319795','#3182ce','#5a67d8','#805ad5','#d53f8c'];
     let hash = 0;
@@ -465,9 +621,7 @@
     return `${d}g ${rh}h`;
   }
 
-  function priorityClass(p) {
-    return 'priority-' + (p || 'none');
-  }
+  function priorityClass(p) { return 'priority-' + (p || 'none'); }
 
   function priorityLabel(p) {
     const labels = { urgent: 'Urgente', high: 'Alta', normal: 'Normale', low: 'Bassa' };
@@ -485,6 +639,10 @@
 
   async function fetchJSON(url) {
     const res = await fetch(url);
+    if (res.status === 401) {
+      window.location.href = '/auth/login';
+      throw new Error('Sessione scaduta');
+    }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -492,7 +650,14 @@
     return res.json();
   }
 
-  // Render Stats
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  // ==================== RENDER ====================
+
   function renderStats(stats) {
     document.getElementById('statTotal').textContent = stats.totalResolved;
 
@@ -509,7 +674,6 @@
       document.getElementById('statAvgTimeDetail').textContent = 'tempo medio business';
     }
 
-    // Priority breakdown
     const bp = stats.byPriority || {};
     const parts = [];
     if (bp.urgent) parts.push(`${bp.urgent} urgenti`);
@@ -527,16 +691,10 @@
     }
   }
 
-  // Render Chart
   function renderChart(perAgent) {
     const ctx = document.getElementById('agentChart').getContext('2d');
-
     if (chart) chart.destroy();
-
-    if (!perAgent || perAgent.length === 0) {
-      chart = null;
-      return;
-    }
+    if (!perAgent || perAgent.length === 0) { chart = null; return; }
 
     const labels = perAgent.map(a => a.name);
     const data = perAgent.map(a => a.count);
@@ -582,7 +740,6 @@
     });
   }
 
-  // Render Agent Cards
   function renderAgentCards(ticketsData, stats) {
     const grid = document.getElementById('agentsGrid');
     const byAgent = ticketsData.byAgent || {};
@@ -594,8 +751,7 @@
           <div class="icon">&#128203;</div>
           <h3>Nessun ticket risolto</h3>
           <p>Non ci sono ticket risolti per la data selezionata.</p>
-        </div>
-      `;
+        </div>`;
       return;
     }
 
@@ -604,7 +760,6 @@
       const avatarStyle = agent.photo
         ? `background-image: url('${agent.photo}'); background-size: cover;`
         : `background: ${avatarColor(agent.name)};`;
-
       const avatarContent = agent.photo ? '' : initials(agent.name);
 
       const ticketRows = tickets.map(t => `
@@ -627,18 +782,12 @@
           <div class="agent-tickets">
             ${ticketRows || '<p style="color: var(--text-secondary); padding: 10px 0;">Nessun ticket</p>'}
           </div>
-        </div>
-      `;
+        </div>`;
     }).join('');
   }
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
-    return div.innerHTML;
-  }
+  // ==================== MAIN ====================
 
-  // Main refresh
   async function refresh() {
     showLoading();
     try {
@@ -648,7 +797,6 @@
         fetchJSON(`/api/stats?date=${currentDate}`)
       ]);
 
-      // Build agents map
       agentsMap = {};
       agents.forEach(a => { agentsMap[a.id] = a; });
 
@@ -659,7 +807,6 @@
       const now = new Date();
       document.getElementById('footerText').textContent =
         `Ultimo aggiornamento: ${now.toLocaleTimeString('it-IT')} | Auto-refresh ogni 5 minuti`;
-
     } catch (err) {
       console.error('Refresh error:', err);
       showToast(`Errore: ${err.message}`);
@@ -668,7 +815,6 @@
     }
   }
 
-  // Events
   datePicker.addEventListener('change', (e) => {
     currentDate = e.target.value;
     refresh();
@@ -676,11 +822,14 @@
 
   document.getElementById('btnRefresh').addEventListener('click', refresh);
 
-  // Auto-refresh every 5 minutes
-  refreshTimer = setInterval(refresh, 5 * 60 * 1000);
-
-  // Initial load
-  refresh();
+  // Start
+  (async () => {
+    const authenticated = await checkAuth();
+    if (authenticated) {
+      refresh();
+      setInterval(refresh, 5 * 60 * 1000);
+    }
+  })();
 </script>
 </body>
 </html>

@@ -1,6 +1,8 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const session = require('express-session');
+const crypto = require('crypto');
 
 // Load .env file if present
 try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
@@ -8,12 +10,37 @@ try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Zendesk configuration (from environment or defaults)
+// Zendesk configuration
 const ZENDESK_DOMAIN = process.env.ZENDESK_DOMAIN || 'b2c-innovation.zendesk.com';
 const ZENDESK_EMAIL = process.env.ZENDESK_EMAIL || 'simone.carroccia@24hassistance.com/token';
 const ZENDESK_TOKEN = process.env.ZENDESK_TOKEN || 'MSLsnRIbfU43NofdNryRFbVpNRo8zPghtX5SxTEE';
 const ZENDESK_BASE = `https://${ZENDESK_DOMAIN}/api/v2`;
 
+// Microsoft Entra ID (Azure AD) configuration
+const MS_CLIENT_ID = process.env.MS_CLIENT_ID || '';
+const MS_CLIENT_SECRET = process.env.MS_CLIENT_SECRET || '';
+const MS_TENANT_ID = process.env.MS_TENANT_ID || '';
+const MS_REDIRECT_URI = process.env.MS_REDIRECT_URI || `http://localhost:${PORT}/auth/callback`;
+const AUTH_ENABLED = !!(MS_CLIENT_ID && MS_CLIENT_SECRET && MS_TENANT_ID);
+
+if (!AUTH_ENABLED) {
+  console.warn('⚠ Microsoft auth non configurata (MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID mancanti).');
+  console.warn('  La dashboard sara accessibile senza login.');
+}
+
+// Session
+app.use(session({
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 8 * 60 * 60 * 1000 // 8 ore
+  }
+}));
+
+// Zendesk API client
 const zendesk = axios.create({
   baseURL: ZENDESK_BASE,
   auth: { username: ZENDESK_EMAIL, password: ZENDESK_TOKEN },
@@ -56,19 +83,131 @@ async function searchAll(query) {
     const res = await zendeskGet(url);
     results = results.concat(res.data.results || []);
     if (res.data.next_page) {
-      // next_page is a full URL, convert to relative
       url = res.data.next_page.replace(ZENDESK_BASE, '');
     } else {
       url = null;
     }
-    // Safety: Zendesk search max 1000 results
     if (results.length >= 1000) break;
   }
   return results;
 }
 
+// ==================== AUTH ROUTES ====================
+
+// Auth middleware - protects API and dashboard
+function requireAuth(req, res, next) {
+  if (!AUTH_ENABLED) return next();
+  if (req.session && req.session.user) return next();
+
+  // API calls get 401, browser requests get redirected
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Non autenticato' });
+  }
+  return res.redirect('/auth/login');
+}
+
+// GET /auth/login - Redirect to Microsoft login
+app.get('/auth/login', (req, res) => {
+  if (!AUTH_ENABLED) return res.redirect('/');
+
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.authState = state;
+
+  const params = new URLSearchParams({
+    client_id: MS_CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: MS_REDIRECT_URI,
+    response_mode: 'query',
+    scope: 'openid profile email User.Read',
+    state: state
+  });
+
+  res.redirect(`https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/authorize?${params}`);
+});
+
+// GET /auth/callback - Handle Microsoft callback
+app.get('/auth/callback', async (req, res) => {
+  try {
+    const { code, state, error, error_description } = req.query;
+
+    if (error) {
+      console.error('Auth error:', error, error_description);
+      return res.status(403).send(`
+        <h2>Accesso negato</h2>
+        <p>${error_description || error}</p>
+        <a href="/auth/login">Riprova</a>
+      `);
+    }
+
+    // Verify state
+    if (state !== req.session.authState) {
+      return res.status(403).send('Stato di autenticazione non valido. <a href="/auth/login">Riprova</a>');
+    }
+
+    // Exchange code for tokens
+    const tokenRes = await axios.post(
+      `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`,
+      new URLSearchParams({
+        client_id: MS_CLIENT_ID,
+        client_secret: MS_CLIENT_SECRET,
+        code: code,
+        redirect_uri: MS_REDIRECT_URI,
+        grant_type: 'authorization_code',
+        scope: 'openid profile email User.Read'
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+
+    const { access_token } = tokenRes.data;
+
+    // Get user profile from Microsoft Graph
+    const profileRes = await axios.get('https://graph.microsoft.com/v1.0/me', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+
+    const profile = profileRes.data;
+
+    req.session.user = {
+      name: profile.displayName,
+      email: (profile.mail || profile.userPrincipalName || '').toLowerCase(),
+      photo: null // Microsoft Graph photo requires separate call
+    };
+
+    delete req.session.authState;
+    res.redirect('/');
+  } catch (err) {
+    console.error('Auth callback error:', err.response?.data || err.message);
+    res.status(500).send('Errore di autenticazione. <a href="/auth/login">Riprova</a>');
+  }
+});
+
+// GET /auth/logout
+app.get('/auth/logout', (req, res) => {
+  const postLogoutRedirect = `${req.protocol}://${req.get('host')}`;
+  req.session.destroy(() => {
+    if (AUTH_ENABLED) {
+      res.redirect(`https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(postLogoutRedirect)}`);
+    } else {
+      res.redirect('/');
+    }
+  });
+});
+
+// GET /auth/me - Current user info
+app.get('/auth/me', (req, res) => {
+  if (!AUTH_ENABLED) {
+    return res.json({ authEnabled: false, user: null });
+  }
+  if (req.session && req.session.user) {
+    return res.json({ authEnabled: true, user: req.session.user });
+  }
+  res.status(401).json({ authEnabled: true, user: null });
+});
+
+// ==================== API ROUTES (protected) ====================
+
 // GET /api/agents
-app.get('/api/agents', async (req, res) => {
+app.get('/api/agents', requireAuth, async (req, res) => {
   try {
     const cached = getCached('agents', 10 * 60 * 1000);
     if (cached) return res.json(cached);
@@ -81,7 +220,6 @@ app.get('/api/agents', async (req, res) => {
       url = r.data.next_page ? r.data.next_page.replace(ZENDESK_BASE, '') : null;
     }
 
-    // Also fetch admins who may handle tickets
     let urlAdmin = '/users.json?role=admin&per_page=100';
     while (urlAdmin) {
       const r = await zendeskGet(urlAdmin);
@@ -117,13 +255,11 @@ async function getResolvedTickets(date) {
   const query = `type:ticket status:solved solved>=${date} solved<${nextDayStr}`;
   const tickets = await searchAll(query);
 
-  // Also search for closed tickets solved today
   const queryClosed = `type:ticket status:closed solved>=${date} solved<${nextDayStr}`;
   const closedTickets = await searchAll(queryClosed);
 
   const allTickets = [...tickets, ...closedTickets];
 
-  // Deduplicate by ticket id
   const seen = new Set();
   const unique = allTickets.filter(t => {
     if (seen.has(t.id)) return false;
@@ -131,12 +267,10 @@ async function getResolvedTickets(date) {
     return true;
   });
 
-  // Try to fetch metrics in batch
   let metricsMap = {};
   if (unique.length > 0) {
     try {
       const ids = unique.map(t => t.id);
-      // Batch in groups of 100
       for (let i = 0; i < ids.length; i += 100) {
         const batch = ids.slice(i, i + 100).join(',');
         const mRes = await zendeskGet(`/tickets/show_many.json?ids=${batch}&include=metric_sets`);
@@ -177,12 +311,11 @@ async function getResolvedTickets(date) {
 }
 
 // GET /api/tickets/resolved-today
-app.get('/api/tickets/resolved-today', async (req, res) => {
+app.get('/api/tickets/resolved-today', requireAuth, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
     const tickets = await getResolvedTickets(date);
 
-    // Group by assignee
     const grouped = {};
     tickets.forEach(t => {
       const aid = t.assignee_id || 'unassigned';
@@ -198,19 +331,17 @@ app.get('/api/tickets/resolved-today', async (req, res) => {
 });
 
 // GET /api/stats
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', requireAuth, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
     const tickets = await getResolvedTickets(date);
 
-    // Fetch agents for name mapping
     const agentsCached = getCached('agents', 10 * 60 * 1000);
     let agentsMap = {};
     if (agentsCached) {
       agentsCached.forEach(a => { agentsMap[a.id] = a; });
     }
 
-    // Per-agent stats
     const perAgent = {};
     tickets.forEach(t => {
       const aid = t.assignee_id || 'unassigned';
@@ -230,7 +361,6 @@ app.get('/api/stats', async (req, res) => {
       avgResolutionMinutes: data.withMetrics > 0 ? Math.round(data.totalMinutes / data.withMetrics) : null
     })).sort((a, b) => b.count - a.count);
 
-    // Global stats
     const totalResolved = tickets.length;
     const topAgent = perAgentArr.length > 0 ? perAgentArr[0] : null;
     const allMinutes = tickets.filter(t => t.resolution_minutes).map(t => t.resolution_minutes);
@@ -238,7 +368,6 @@ app.get('/api/stats', async (req, res) => {
       ? Math.round(allMinutes.reduce((a, b) => a + b, 0) / allMinutes.length)
       : null;
 
-    // Priority breakdown
     const byPriority = {};
     tickets.forEach(t => {
       const p = t.priority || 'none';
@@ -259,9 +388,20 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// Serve static files
+// Serve static files (protected by auth for HTML pages)
+app.use((req, res, next) => {
+  // Allow auth routes and static assets (js, css, images) without auth
+  if (req.path.startsWith('/auth/') || /\.(js|css|png|jpg|ico|svg|woff2?)$/i.test(req.path)) {
+    return next();
+  }
+  requireAuth(req, res, next);
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {
   console.log(`Dashboard avviata su http://localhost:${PORT}`);
+  if (AUTH_ENABLED) {
+    console.log('Autenticazione Microsoft attiva');
+  }
 });
