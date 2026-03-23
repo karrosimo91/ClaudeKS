@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Ticket Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --primary: #1f73b7;
+      --primary-light: #e8f4fd;
+      --success: #38a169;
+      --warning: #d69e2e;
+      --danger: #e53e3e;
+      --bg: #f0f2f5;
+      --card-bg: #ffffff;
+      --text: #2d3748;
+      --text-secondary: #718096;
+      --border: #e2e8f0;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+      --radius: 12px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .header {
+      background: linear-gradient(135deg, var(--primary), #2c5282);
+      color: white;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    }
+
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header input[type="date"] {
+      padding: 8px 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      background: rgba(255,255,255,0.15);
+      color: white;
+      cursor: pointer;
+    }
+
+    .header input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      cursor: pointer;
+    }
+
+    .btn-refresh {
+      padding: 8px 18px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.15);
+      color: white;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: 600;
+    }
+
+    .btn-refresh:hover { background: rgba(255,255,255,0.3); }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* Stats Row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+      border-left: 4px solid var(--primary);
+      transition: transform 0.2s;
+    }
+
+    .stat-card:hover { transform: translateY(-2px); }
+
+    .stat-card.success { border-left-color: var(--success); }
+    .stat-card.warning { border-left-color: var(--warning); }
+    .stat-card.danger { border-left-color: var(--danger); }
+
+    .stat-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .stat-detail {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    /* Chart Section */
+    .chart-section {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+
+    .chart-section h2 {
+      font-size: 1.1rem;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .chart-container {
+      position: relative;
+      width: 100%;
+      max-height: 400px;
+    }
+
+    /* Agent Cards */
+    .section-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .agents-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .agent-card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .agent-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    }
+
+    .agent-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 20px;
+      background: linear-gradient(135deg, var(--primary-light), #f0f7ff);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: white;
+      flex-shrink: 0;
+      background-size: cover;
+      background-position: center;
+    }
+
+    .agent-info h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .agent-info .ticket-count {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .ticket-count strong {
+      color: var(--primary);
+      font-size: 1.1rem;
+    }
+
+    .agent-tickets {
+      padding: 12px 20px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .ticket-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      text-decoration: none;
+      color: var(--text);
+      transition: background 0.15s;
+    }
+
+    .ticket-item:last-child { border-bottom: none; }
+
+    .ticket-item:hover { opacity: 0.8; }
+
+    .ticket-id {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--primary);
+      white-space: nowrap;
+      min-width: 70px;
+    }
+
+    .ticket-subject {
+      font-size: 0.85rem;
+      color: var(--text);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .priority-badge {
+      font-size: 0.65rem;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .priority-urgent { background: #fed7d7; color: #c53030; }
+    .priority-high { background: #feebc8; color: #c05621; }
+    .priority-normal { background: #bee3f8; color: #2b6cb0; }
+    .priority-low { background: #c6f6d5; color: #276749; }
+    .priority-none { background: #e2e8f0; color: #718096; }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 16px;
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .pulse {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* Loading */
+    .loading-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      backdrop-filter: blur(2px);
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-overlay.hidden { display: none; }
+
+    /* Error Toast */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 14px 20px;
+      border-radius: 8px;
+      color: white;
+      font-size: 0.9rem;
+      z-index: 1000;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      transform: translateX(120%);
+      transition: transform 0.3s;
+    }
+
+    .toast.show { transform: translateX(0); }
+    .toast.error { background: var(--danger); }
+    .toast.success { background: var(--success); }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-secondary);
+    }
+
+    .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 1.2rem; margin-bottom: 8px; color: var(--text); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header { padding: 16px; }
+      .header h1 { font-size: 1.2rem; }
+      .container { padding: 16px; }
+      .agents-grid { grid-template-columns: 1fr; }
+      .stats-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+</div>
+
+<div class="toast error" id="toast"></div>
+
+<div class="header">
+  <h1>Zendesk Agent Dashboard</h1>
+  <div class="header-controls">
+    <input type="date" id="datePicker">
+    <button class="btn-refresh" id="btnRefresh">Aggiorna</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card">
+      <div class="stat-label">Ticket Risolti</div>
+      <div class="stat-value" id="statTotal">-</div>
+      <div class="stat-detail" id="statTotalDetail"></div>
+    </div>
+    <div class="stat-card success">
+      <div class="stat-label">Top Agent</div>
+      <div class="stat-value" id="statTopAgent">-</div>
+      <div class="stat-detail" id="statTopAgentDetail"></div>
+    </div>
+    <div class="stat-card warning">
+      <div class="stat-label">Tempo Medio Risoluzione</div>
+      <div class="stat-value" id="statAvgTime">-</div>
+      <div class="stat-detail" id="statAvgTimeDetail"></div>
+    </div>
+    <div class="stat-card danger">
+      <div class="stat-label">Per Priorita</div>
+      <div class="stat-value" id="statPriority">-</div>
+      <div class="stat-detail" id="statPriorityDetail"></div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-section">
+    <h2>Ticket Risolti per Agente</h2>
+    <div class="chart-container">
+      <canvas id="agentChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Agent Cards -->
+  <h2 class="section-title">Dettaglio per Agente</h2>
+  <div class="agents-grid" id="agentsGrid"></div>
+</div>
+
+<div class="footer">
+  <div class="pulse"></div>
+  <span id="footerText">Auto-refresh ogni 5 minuti</span>
+</div>
+
+<script>
+  // State
+  let currentDate = new Date().toISOString().split('T')[0];
+  let chart = null;
+  let refreshTimer = null;
+  let agentsMap = {};
+
+  // DOM
+  const datePicker = document.getElementById('datePicker');
+  const loading = document.getElementById('loading');
+  const toast = document.getElementById('toast');
+
+  // Init date picker
+  datePicker.value = currentDate;
+  datePicker.max = new Date().toISOString().split('T')[0];
+
+  // Avatar color from name
+  function avatarColor(name) {
+    const colors = ['#e53e3e','#dd6b20','#d69e2e','#38a169','#319795','#3182ce','#5a67d8','#805ad5','#d53f8c'];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  }
+
+  function initials(name) {
+    return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  }
+
+  function formatMinutes(mins) {
+    if (!mins && mins !== 0) return 'N/D';
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h < 24) return `${h}h ${m}m`;
+    const d = Math.floor(h / 24);
+    const rh = h % 24;
+    return `${d}g ${rh}h`;
+  }
+
+  function priorityClass(p) {
+    return 'priority-' + (p || 'none');
+  }
+
+  function priorityLabel(p) {
+    const labels = { urgent: 'Urgente', high: 'Alta', normal: 'Normale', low: 'Bassa' };
+    return labels[p] || '-';
+  }
+
+  function showLoading() { loading.classList.remove('hidden'); }
+  function hideLoading() { loading.classList.add('hidden'); }
+
+  function showToast(msg, type = 'error') {
+    toast.textContent = msg;
+    toast.className = `toast ${type} show`;
+    setTimeout(() => toast.classList.remove('show'), 4000);
+  }
+
+  async function fetchJSON(url) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  // Render Stats
+  function renderStats(stats) {
+    document.getElementById('statTotal').textContent = stats.totalResolved;
+
+    if (stats.topAgent) {
+      document.getElementById('statTopAgent').textContent = stats.topAgent.name;
+      document.getElementById('statTopAgentDetail').textContent = `${stats.topAgent.count} ticket risolti`;
+    } else {
+      document.getElementById('statTopAgent').textContent = '-';
+      document.getElementById('statTopAgentDetail').textContent = '';
+    }
+
+    document.getElementById('statAvgTime').textContent = formatMinutes(stats.avgResolutionMinutes);
+    if (stats.avgResolutionMinutes) {
+      document.getElementById('statAvgTimeDetail').textContent = 'tempo medio business';
+    }
+
+    // Priority breakdown
+    const bp = stats.byPriority || {};
+    const parts = [];
+    if (bp.urgent) parts.push(`${bp.urgent} urgenti`);
+    if (bp.high) parts.push(`${bp.high} alte`);
+    if (bp.normal) parts.push(`${bp.normal} normali`);
+    if (bp.low) parts.push(`${bp.low} basse`);
+    if (bp.none) parts.push(`${bp.none} senza`);
+
+    if (parts.length > 0) {
+      document.getElementById('statPriority').textContent = Object.values(bp).reduce((a,b) => a+b, 0);
+      document.getElementById('statPriorityDetail').textContent = parts.join(' | ');
+    } else {
+      document.getElementById('statPriority').textContent = '-';
+      document.getElementById('statPriorityDetail').textContent = '';
+    }
+  }
+
+  // Render Chart
+  function renderChart(perAgent) {
+    const ctx = document.getElementById('agentChart').getContext('2d');
+
+    if (chart) chart.destroy();
+
+    if (!perAgent || perAgent.length === 0) {
+      chart = null;
+      return;
+    }
+
+    const labels = perAgent.map(a => a.name);
+    const data = perAgent.map(a => a.count);
+    const colors = perAgent.map(a => avatarColor(a.name));
+
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Ticket Risolti',
+          data,
+          backgroundColor: colors.map(c => c + '99'),
+          borderColor: colors,
+          borderWidth: 2,
+          borderRadius: 6,
+          barPercentage: 0.7
+        }]
+      },
+      options: {
+        indexAxis: perAgent.length > 6 ? 'y' : 'x',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              afterLabel: function(ctx) {
+                const agent = perAgent[ctx.dataIndex];
+                if (agent.avgResolutionMinutes) {
+                  return `Tempo medio: ${formatMinutes(agent.avgResolutionMinutes)}`;
+                }
+                return '';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: { beginAtZero: true, ticks: { precision: 0 } }
+        }
+      }
+    });
+  }
+
+  // Render Agent Cards
+  function renderAgentCards(ticketsData, stats) {
+    const grid = document.getElementById('agentsGrid');
+    const byAgent = ticketsData.byAgent || {};
+    const perAgent = stats.perAgent || [];
+
+    if (perAgent.length === 0) {
+      grid.innerHTML = `
+        <div class="empty-state" style="grid-column: 1/-1;">
+          <div class="icon">&#128203;</div>
+          <h3>Nessun ticket risolto</h3>
+          <p>Non ci sono ticket risolti per la data selezionata.</p>
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = perAgent.map(agent => {
+      const tickets = byAgent[agent.agentId] || [];
+      const avatarStyle = agent.photo
+        ? `background-image: url('${agent.photo}'); background-size: cover;`
+        : `background: ${avatarColor(agent.name)};`;
+
+      const avatarContent = agent.photo ? '' : initials(agent.name);
+
+      const ticketRows = tickets.map(t => `
+        <a href="${t.url}" target="_blank" class="ticket-item">
+          <span class="ticket-id">#${t.id}</span>
+          <span class="ticket-subject">${escapeHtml(t.subject || 'Senza oggetto')}</span>
+          <span class="priority-badge ${priorityClass(t.priority)}">${priorityLabel(t.priority)}</span>
+        </a>
+      `).join('');
+
+      return `
+        <div class="agent-card">
+          <div class="agent-header">
+            <div class="avatar" style="${avatarStyle}">${avatarContent}</div>
+            <div class="agent-info">
+              <h3>${escapeHtml(agent.name)}</h3>
+              <div class="ticket-count"><strong>${agent.count}</strong> ticket risolti${agent.avgResolutionMinutes ? ` &middot; media ${formatMinutes(agent.avgResolutionMinutes)}` : ''}</div>
+            </div>
+          </div>
+          <div class="agent-tickets">
+            ${ticketRows || '<p style="color: var(--text-secondary); padding: 10px 0;">Nessun ticket</p>'}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  // Main refresh
+  async function refresh() {
+    showLoading();
+    try {
+      const [agents, tickets, stats] = await Promise.all([
+        fetchJSON('/api/agents'),
+        fetchJSON(`/api/tickets/resolved-today?date=${currentDate}`),
+        fetchJSON(`/api/stats?date=${currentDate}`)
+      ]);
+
+      // Build agents map
+      agentsMap = {};
+      agents.forEach(a => { agentsMap[a.id] = a; });
+
+      renderStats(stats);
+      renderChart(stats.perAgent);
+      renderAgentCards(tickets, stats);
+
+      const now = new Date();
+      document.getElementById('footerText').textContent =
+        `Ultimo aggiornamento: ${now.toLocaleTimeString('it-IT')} | Auto-refresh ogni 5 minuti`;
+
+    } catch (err) {
+      console.error('Refresh error:', err);
+      showToast(`Errore: ${err.message}`);
+    } finally {
+      hideLoading();
+    }
+  }
+
+  // Events
+  datePicker.addEventListener('change', (e) => {
+    currentDate = e.target.value;
+    refresh();
+  });
+
+  document.getElementById('btnRefresh').addEventListener('click', refresh);
+
+  // Auto-refresh every 5 minutes
+  refreshTimer = setInterval(refresh, 5 * 60 * 1000);
+
+  // Initial load
+  refresh();
+</script>
+</body>
+</html>
