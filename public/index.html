@@ -582,6 +582,14 @@
         document.getElementById('userName').textContent = data.user.name;
         const ini = data.user.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
         document.getElementById('userAvatar').textContent = ini;
+        // Store role
+        window.userRole = data.role || 'agent';
+        // Adapt title for agents
+        if (window.userRole !== 'admin') {
+          document.querySelector('.header h1').textContent = 'I Miei Ticket';
+          document.querySelector('.section-title').textContent = 'I Miei Ticket Risolti';
+          document.querySelector('.chart-section h2').textContent = 'I Miei Ticket per Giorno';
+        }
         return true;
       }
 

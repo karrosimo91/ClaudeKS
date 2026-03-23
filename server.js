@@ -167,10 +167,27 @@ app.get('/auth/callback', async (req, res) => {
 
     const profile = profileRes.data;
 
+    const userEmail = (profile.mail || profile.userPrincipalName || '').toLowerCase();
+
+    // Match with Zendesk user by email to determine role
+    let zendeskRole = 'agent';
+    let zendeskUserId = null;
+    try {
+      const zRes = await zendeskGet(`/users/search.json?query=${encodeURIComponent(userEmail)}`);
+      const zUser = (zRes.data.users || []).find(u => u.email && u.email.toLowerCase() === userEmail);
+      if (zUser) {
+        zendeskUserId = zUser.id;
+        zendeskRole = (zUser.role === 'admin') ? 'admin' : 'agent';
+      }
+    } catch (e) {
+      console.warn('Could not match Zendesk user:', e.message);
+    }
+
     req.session.user = {
       name: profile.displayName,
-      email: (profile.mail || profile.userPrincipalName || '').toLowerCase(),
-      photo: null // Microsoft Graph photo requires separate call
+      email: userEmail,
+      role: zendeskRole,          // 'admin' vede tutto, 'agent' solo i suoi
+      zendeskUserId: zendeskUserId // ID Zendesk per filtrare i ticket
     };
 
     delete req.session.authState;
@@ -196,10 +213,15 @@ app.get('/auth/logout', (req, res) => {
 // GET /auth/me - Current user info
 app.get('/auth/me', (req, res) => {
   if (!AUTH_ENABLED) {
-    return res.json({ authEnabled: false, user: null });
+    return res.json({ authEnabled: false, user: null, role: 'admin' });
   }
   if (req.session && req.session.user) {
-    return res.json({ authEnabled: true, user: req.session.user });
+    return res.json({
+      authEnabled: true,
+      user: req.session.user,
+      role: req.session.user.role,
+      zendeskUserId: req.session.user.zendeskUserId
+    });
   }
   res.status(401).json({ authEnabled: true, user: null });
 });
@@ -310,11 +332,23 @@ async function getResolvedTickets(date) {
   return result;
 }
 
+// Helper: filter tickets based on user role
+function filterTicketsForUser(tickets, session) {
+  if (!AUTH_ENABLED) return tickets;
+  if (!session || !session.user) return tickets;
+  if (session.user.role === 'admin') return tickets;
+  // Agent: only their own tickets
+  const uid = session.user.zendeskUserId;
+  if (!uid) return [];
+  return tickets.filter(t => t.assignee_id === uid);
+}
+
 // GET /api/tickets/resolved-today
 app.get('/api/tickets/resolved-today', requireAuth, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
-    const tickets = await getResolvedTickets(date);
+    const allTickets = await getResolvedTickets(date);
+    const tickets = filterTicketsForUser(allTickets, req.session);
 
     const grouped = {};
     tickets.forEach(t => {
@@ -334,7 +368,8 @@ app.get('/api/tickets/resolved-today', requireAuth, async (req, res) => {
 app.get('/api/stats', requireAuth, async (req, res) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
-    const tickets = await getResolvedTickets(date);
+    const allTickets = await getResolvedTickets(date);
+    const tickets = filterTicketsForUser(allTickets, req.session);
 
     const agentsCached = getCached('agents', 10 * 60 * 1000);
     let agentsMap = {};
