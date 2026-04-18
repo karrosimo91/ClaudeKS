@@ -16,7 +16,9 @@ Dry-run di default; serve --live per eseguire davvero.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
+import json
 import logging
 import os
 import random
@@ -48,6 +50,25 @@ class Verifica:
     verifica_preventivo_id: str
     documento_id: str
     verifica_descrizione: str
+    image_url: str = ""
+
+
+@dataclass
+class EsitoAudit:
+    detail_id: str
+    codice_preventivo: str
+    verifica_preventivo_id: str
+    verifica_descrizione: str
+    expected_targa: str
+    expected_nominativo: str
+    extracted_targa: str
+    extracted_nominativo: str
+    extracted_data: str
+    ocr_note: str
+    match_score: str
+    match_notes: str
+    image_url: str
+    errore: str = ""
 
 
 @dataclass
@@ -327,9 +348,14 @@ def fetch_detail(
         inp_doc = div.select_one('input[name="DocumentoID"][type="hidden"]')
         if inp_doc and inp_doc.get("value"):
             doc_id = inp_doc["value"].strip()
+        img_url = ""
+        img = div.select_one("img.document")
+        if img and img.get("src"):
+            img_url = img["src"].strip()
         if vp_id and doc_id and vp_id not in seen_vp:
             seen_vp.add(vp_id)
-            verifiche.append(Verifica(verifica_preventivo_id=vp_id, documento_id=doc_id, verifica_descrizione=descr))
+            verifiche.append(Verifica(verifica_preventivo_id=vp_id, documento_id=doc_id,
+                                       verifica_descrizione=descr, image_url=img_url))
 
     if not verifiche:
         # Fallback: coppie VerificaPreventivoID + DocumentoID negli hidden input.
@@ -452,6 +478,186 @@ def annulla_documento(
     return RisultatoAnnullo(esito="error", messaggio="max retries exceeded", **base)
 
 
+OCR_SYSTEM = (
+    "Sei un assistente che legge documenti italiani relativi a polizze assicurative moto/auto "
+    "(denunce ai Carabinieri, attestati di perdita di possesso, certificati, documenti d'identità, ecc.). "
+    "Rispondi SEMPRE e SOLO con un oggetto JSON valido, senza markdown o testo extra."
+)
+
+
+def _media_type_from_url(url: str) -> str:
+    u = url.lower().split("?")[0]
+    if u.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if u.endswith(".png"):
+        return "image/png"
+    if u.endswith(".webp"):
+        return "image/webp"
+    if u.endswith(".gif"):
+        return "image/gif"
+    return "image/jpeg"
+
+
+def _download_image(session: requests.Session, url: str) -> bytes:
+    resp = session.get(url, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.content
+
+
+def _parse_json_loose(text: str) -> dict:
+    t = text.strip()
+    if t.startswith("```"):
+        lines = t.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        t = "\n".join(lines).strip()
+    return json.loads(t)
+
+
+def ocr_estrai_campi(anthropic_client, model: str, image_bytes: bytes, media_type: str,
+                      descrizione_attesa: str, targa_attesa: str, nominativo_atteso: str) -> dict:
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    user_text = (
+        "Estrai dal documento in allegato i seguenti campi:\n"
+        "- targa: targa del veicolo (formato italiano, es. AB123CD). \"\" se non presente.\n"
+        "- nome_cognome: nome e cognome completi della persona intestataria o dichiarante. \"\" se non presente.\n"
+        "- data: data principale del documento in formato dd/MM/yyyy. \"\" se assente o ambigua.\n"
+        "- note: osservazioni brevi su leggibilità, qualità o anomalie (max 120 caratteri).\n\n"
+        f"Contesto atteso: documento di tipo \"{descrizione_attesa}\"; "
+        f"targa attesa \"{targa_attesa}\"; nominativo atteso \"{nominativo_atteso}\".\n\n"
+        "Rispondi SOLO con JSON valido in questa forma esatta:\n"
+        "{\"targa\": \"...\", \"nome_cognome\": \"...\", \"data\": \"...\", \"note\": \"...\"}"
+    )
+    resp = anthropic_client.messages.create(
+        model=model,
+        max_tokens=1024,
+        thinking={"type": "adaptive"},
+        system=OCR_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+                {"type": "text", "text": user_text},
+            ],
+        }],
+    )
+    raw = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    try:
+        return _parse_json_loose(raw)
+    except Exception as e:
+        logging.warning("OCR JSON parse error: %s | raw=%s", e, raw[:300])
+        return {"targa": "", "nome_cognome": "", "data": "", "note": f"parse error: {raw[:120]}"}
+
+
+def _norm_targa(s: str) -> str:
+    return re.sub(r"\s+", "", (s or "").upper())
+
+
+def _norm_text(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def score_match(expected_targa: str, expected_nominativo: str, extracted: dict) -> tuple[str, str]:
+    max_score = 0
+    got = 0
+    parts: list[str] = []
+
+    et = _norm_targa(expected_targa)
+    at = _norm_targa(extracted.get("targa", ""))
+    if et:
+        max_score += 1
+        if at == et:
+            got += 1
+            parts.append("targa=ok")
+        else:
+            parts.append(f"targa: atteso={et or '-'} trovato={at or '-'}")
+
+    en = _norm_text(expected_nominativo)
+    an = _norm_text(extracted.get("nome_cognome", ""))
+    if en:
+        max_score += 1
+        # match: cognome presente in una delle due stringhe, oppure intersezione parole significative
+        en_tokens = {w for w in re.split(r"\W+", en) if len(w) >= 3}
+        an_tokens = {w for w in re.split(r"\W+", an) if len(w) >= 3}
+        common = en_tokens & an_tokens
+        if common and len(common) >= min(2, len(en_tokens)):
+            got += 1
+            parts.append(f"nominativo=ok ({','.join(sorted(common))})")
+        else:
+            parts.append(f"nominativo: atteso={en!r} trovato={an!r}")
+
+    score = f"{got}/{max_score}" if max_score else "n/a"
+    return score, "; ".join(parts)
+
+
+def audit_documento(session: requests.Session, anthropic_client, model: str,
+                     completo: DocumentoCompleto) -> list[EsitoAudit]:
+    d = completo.input
+    esiti: list[EsitoAudit] = []
+    for v in completo.verifiche:
+        base = dict(
+            detail_id=d.detail_id,
+            codice_preventivo=d.codice_preventivo,
+            verifica_preventivo_id=v.verifica_preventivo_id,
+            verifica_descrizione=v.verifica_descrizione,
+            expected_targa=d.targa,
+            expected_nominativo=d.nominativo,
+            image_url=v.image_url,
+        )
+        if not v.image_url:
+            esiti.append(EsitoAudit(extracted_targa="", extracted_nominativo="", extracted_data="",
+                                     ocr_note="", match_score="n/a", match_notes="",
+                                     errore="no image url", **base))
+            continue
+        try:
+            img_bytes = _download_image(session, v.image_url)
+        except Exception as e:
+            esiti.append(EsitoAudit(extracted_targa="", extracted_nominativo="", extracted_data="",
+                                     ocr_note="", match_score="n/a", match_notes="",
+                                     errore=f"download: {e}", **base))
+            continue
+        try:
+            extracted = ocr_estrai_campi(
+                anthropic_client, model, img_bytes, _media_type_from_url(v.image_url),
+                descrizione_attesa=v.verifica_descrizione,
+                targa_attesa=d.targa,
+                nominativo_atteso=d.nominativo,
+            )
+        except Exception as e:
+            esiti.append(EsitoAudit(extracted_targa="", extracted_nominativo="", extracted_data="",
+                                     ocr_note="", match_score="n/a", match_notes="",
+                                     errore=f"ocr: {e}", **base))
+            continue
+        score, notes = score_match(d.targa, d.nominativo, extracted)
+        esiti.append(EsitoAudit(
+            extracted_targa=extracted.get("targa", ""),
+            extracted_nominativo=extracted.get("nome_cognome", ""),
+            extracted_data=extracted.get("data", ""),
+            ocr_note=extracted.get("note", ""),
+            match_score=score,
+            match_notes=notes,
+            **base,
+        ))
+        time.sleep(RATE_LIMIT_SECONDS)
+    return esiti
+
+
+def scrivi_audit(esiti: list[EsitoAudit], path: Path) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Audit"
+    ws.append(["DetailID", "CodicePreventivo", "VerificaPreventivoID", "VerificaDescrizione",
+               "ExpectedTarga", "ExtractedTarga", "ExpectedNominativo", "ExtractedNominativo",
+               "ExtractedData", "MatchScore", "MatchNotes", "OCRNote", "ImageURL", "Errore"])
+    for e in esiti:
+        ws.append([e.detail_id, e.codice_preventivo, e.verifica_preventivo_id, e.verifica_descrizione,
+                   e.expected_targa, e.extracted_targa, e.expected_nominativo, e.extracted_nominativo,
+                   e.extracted_data, e.match_score, e.match_notes, e.ocr_note, e.image_url, e.errore])
+    wb.save(path)
+
+
 def _dump_docs(docs: list[DocumentoInput], path: Path) -> None:
     wb = Workbook()
     ws = wb.active
@@ -496,10 +702,16 @@ def main() -> int:
     parser.add_argument("--stato", type=int, default=0)
     parser.add_argument("--output", type=Path, default=Path(f"esiti_{datetime.now():%Y%m%d_%H%M%S}.xlsx"))
     parser.add_argument("--log", type=Path, default=Path(f"annullo_{datetime.now():%Y%m%d_%H%M%S}.log"))
-    parser.add_argument("--live", action="store_true", help="Esegue la POST validate (default: dry-run)")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--live", action="store_true", help="Esegue la POST validate (default: dry-run)")
+    action.add_argument("--audit", action="store_true",
+                        help="OCR delle immagini delle verifiche con Claude e report di matching (no validate)")
     parser.add_argument("--env", type=Path, default=Path(".env"))
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--dump-docs", type=Path, help="Salva l'elenco documenti trovati dalla lista in un xlsx")
+    parser.add_argument("--audit-output", type=Path,
+                        default=Path(f"audit_{datetime.now():%Y%m%d_%H%M%S}.xlsx"),
+                        help="File di output per modalità --audit")
     args = parser.parse_args()
 
     setup_logging(args.log, args.verbose)
@@ -537,6 +749,47 @@ def main() -> int:
 
     if not docs:
         logging.warning("Nessun documento da processare")
+        return 0
+
+    if args.audit:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not api_key:
+            logging.error("ANTHROPIC_API_KEY non impostata in %s (serve per --audit)", args.env)
+            return 2
+        try:
+            import anthropic  # type: ignore
+        except ImportError:
+            logging.error("Pacchetto 'anthropic' mancante. Installa con: pip install -r requirements.txt")
+            return 2
+        ocr_model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7").strip() or "claude-opus-4-7"
+        anthropic_client = anthropic.Anthropic(api_key=api_key)
+        logging.info("Audit mode con modello %s", ocr_model)
+
+        esiti_audit: list[EsitoAudit] = []
+        try:
+            for i, d in enumerate(docs, 1):
+                logging.info("[%d/%d] %s (%s)", i, len(docs), d.detail_id, d.codice_preventivo)
+                try:
+                    completo = fetch_detail(session, cookies, d, data_annullo_override)
+                except Exception as e:
+                    logging.error("Fetch dettaglio %s fallito: %s", d.detail_id, e)
+                    continue
+                logging.info("  dettaglio: %d verifiche, targa=%s nominativo=%s",
+                             len(completo.verifiche), d.targa or "-", d.nominativo or "-")
+                esiti_audit.extend(audit_documento(session, anthropic_client, ocr_model, completo))
+        except KeyboardInterrupt:
+            logging.warning("Interrotto dall'utente dopo %d verifiche", len(esiti_audit))
+        finally:
+            if esiti_audit:
+                scrivi_audit(esiti_audit, args.audit_output)
+
+        # Stats
+        ok2 = sum(1 for e in esiti_audit if e.match_score == "2/2")
+        ok1 = sum(1 for e in esiti_audit if e.match_score == "1/2")
+        ok0 = sum(1 for e in esiti_audit if e.match_score == "0/2")
+        errs = sum(1 for e in esiti_audit if e.errore)
+        logging.info("Audit fine. match=2/2:%d 1/2:%d 0/2:%d errori:%d — report in %s",
+                     ok2, ok1, ok0, errs, args.audit_output)
         return 0
 
     if not args.live:
