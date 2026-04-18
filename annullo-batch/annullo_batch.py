@@ -17,7 +17,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -62,10 +62,10 @@ class TokenManager:
         self.username = username
         self.session = session
         self._token: Optional[str] = None
-        self._expires_at: datetime = datetime.min
+        self._expires_at: datetime = datetime.min.replace(tzinfo=timezone.utc)
 
     def get(self, force: bool = False) -> str:
-        if force or self._token is None or datetime.utcnow() >= self._expires_at:
+        if force or self._token is None or datetime.now(timezone.utc) >= self._expires_at:
             self._refresh()
         assert self._token is not None
         return self._token
@@ -84,7 +84,7 @@ class TokenManager:
         if not token:
             raise RuntimeError("Token vuoto nella risposta della API")
         self._token = token
-        self._expires_at = datetime.utcnow() + TOKEN_TTL
+        self._expires_at = datetime.now(timezone.utc) + TOKEN_TTL
         logging.debug("Token ottenuto, scade attorno a %s UTC", self._expires_at.isoformat())
 
 
@@ -288,15 +288,19 @@ def annulla_documento(
             token_mgr.get(force=True)
             continue
 
+        body = resp.text[:500].replace("\n", " ").strip()
+
         if 500 <= resp.status_code < 600 and attempt < MAX_RETRIES:
-            logging.warning("HTTP %d su %s (tentativo %d/%d)",
-                            resp.status_code, doc.verifica_preventivo_id, attempt, MAX_RETRIES)
+            logging.warning("HTTP %d su %s (tentativo %d/%d) body=%s",
+                            resp.status_code, doc.verifica_preventivo_id, attempt, MAX_RETRIES, body)
             _backoff(attempt)
             continue
 
-        body = resp.text[:500].replace("\n", " ").strip()
-        esito = "success" if 200 <= resp.status_code < 300 else "error"
-        return RisultatoAnnullo(esito=esito, http_status=resp.status_code, messaggio=body, **base)
+        if 200 <= resp.status_code < 300:
+            return RisultatoAnnullo(esito="success", http_status=resp.status_code, messaggio=body, **base)
+
+        logging.error("HTTP %d su %s body=%s", resp.status_code, doc.verifica_preventivo_id, body)
+        return RisultatoAnnullo(esito="error", http_status=resp.status_code, messaggio=body, **base)
 
     return RisultatoAnnullo(esito="error", messaggio="max retries exceeded", **base)
 
