@@ -55,6 +55,8 @@ class DocumentoInput:
     detail_id: str
     codice_preventivo: str
     codice_polizza: str = ""
+    targa: str = ""
+    nominativo: str = ""
 
 
 @dataclass
@@ -69,6 +71,8 @@ class RisultatoAnnullo:
     detail_id: str
     codice_preventivo: str
     codice_polizza: str
+    targa: str
+    nominativo: str
     n_verifiche: int
     timestamp: str
     esito: str
@@ -243,8 +247,15 @@ def fetch_from_list(
             cod_prev = td_prev.get_text(strip=True)
             td_pol = td_prev.find_next_sibling("td")
             cod_pol = td_pol.get_text(strip=True) if td_pol else ""
+            td_targa = td_pol.find_next_sibling("td") if td_pol else None
+            targa = td_targa.get_text(strip=True) if td_targa else ""
+            td_nom = td_targa.find_next_sibling("td") if td_targa else None
+            nominativo = td_nom.get_text(" ", strip=True) if td_nom else ""
 
-            docs.append(DocumentoInput(detail_id=detail_id, codice_preventivo=cod_prev, codice_polizza=cod_pol))
+            docs.append(DocumentoInput(
+                detail_id=detail_id, codice_preventivo=cod_prev, codice_polizza=cod_pol,
+                targa=targa, nominativo=nominativo,
+            ))
             new_on_page += 1
 
         if new_on_page == 0:
@@ -252,6 +263,17 @@ def fetch_from_list(
 
     logging.info("Lista: raccolti %d documenti in %d pagine", len(docs), last_page + 1)
     return docs
+
+
+def _field_by_label(soup: BeautifulSoup, label_text: str) -> str:
+    """Trova <small>label</small> (o <small><label>label</label></small>) e ritorna il <p> successivo."""
+    target = label_text.strip().lower()
+    for small in soup.find_all("small"):
+        if small.get_text(strip=True).rstrip(":").lower() == target:
+            p = small.find_next("p")
+            if p:
+                return p.get_text(" ", strip=True)
+    return ""
 
 
 def fetch_detail(
@@ -274,6 +296,15 @@ def fetch_detail(
     inp_pol = soup.select_one('input[name="CodicePolizza"][type="hidden"]')
     if inp_pol and inp_pol.get("value"):
         cod_pol = inp_pol["value"].strip()
+
+    # Targa e nominativo (fallback dal dettaglio se non già popolati dalla lista)
+    if not doc.targa:
+        doc.targa = _field_by_label(soup, "Targa")
+    if not doc.nominativo:
+        nome = _field_by_label(soup, "Nome")
+        cognome = _field_by_label(soup, "Cognome")
+        full = f"{nome} {cognome}".strip()
+        doc.nominativo = full
 
     # DataAnnullamento: <input id="DataAnnullamento" value="28/02/2026">
     data_annullo = data_annullo_override
@@ -346,6 +377,8 @@ def annulla_documento(
         detail_id=d.detail_id,
         codice_preventivo=d.codice_preventivo,
         codice_polizza=d.codice_polizza,
+        targa=d.targa,
+        nominativo=d.nominativo,
         n_verifiche=len(completo.verifiche),
         timestamp=ts,
     )
@@ -423,9 +456,9 @@ def _dump_docs(docs: list[DocumentoInput], path: Path) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "Documenti"
-    ws.append(["DetailID", "CodicePreventivo", "CodicePolizza"])
+    ws.append(["DetailID", "CodicePreventivo", "CodicePolizza", "Targa", "Nominativo"])
     for d in docs:
-        ws.append([d.detail_id, d.codice_preventivo, d.codice_polizza])
+        ws.append([d.detail_id, d.codice_preventivo, d.codice_polizza, d.targa, d.nominativo])
     wb.save(path)
 
 
@@ -433,11 +466,11 @@ def scrivi_risultati(risultati: list[RisultatoAnnullo], path: Path) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "Esiti"
-    ws.append(["DetailID", "CodicePreventivo", "CodicePolizza", "NVerifiche",
-               "Timestamp", "Esito", "HTTPStatus", "Messaggio"])
+    ws.append(["DetailID", "CodicePreventivo", "CodicePolizza", "Targa", "Nominativo",
+               "NVerifiche", "Timestamp", "Esito", "HTTPStatus", "Messaggio"])
     for r in risultati:
-        ws.append([r.detail_id, r.codice_preventivo, r.codice_polizza, r.n_verifiche,
-                   r.timestamp, r.esito, r.http_status, r.messaggio])
+        ws.append([r.detail_id, r.codice_preventivo, r.codice_polizza, r.targa, r.nominativo,
+                   r.n_verifiche, r.timestamp, r.esito, r.http_status, r.messaggio])
     wb.save(path)
 
 
@@ -521,7 +554,8 @@ def main() -> int:
                 logging.error("Fetch dettaglio %s fallito: %s", d.detail_id, e)
                 risultati.append(RisultatoAnnullo(
                     detail_id=d.detail_id, codice_preventivo=d.codice_preventivo,
-                    codice_polizza=d.codice_polizza, n_verifiche=0,
+                    codice_polizza=d.codice_polizza, targa=d.targa, nominativo=d.nominativo,
+                    n_verifiche=0,
                     timestamp=datetime.now().isoformat(timespec="seconds"),
                     esito="error", messaggio=f"fetch_detail: {e}",
                 ))
