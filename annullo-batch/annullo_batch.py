@@ -284,20 +284,44 @@ def fetch_detail(
     if not data_annullo:
         data_annullo = datetime.now().strftime("%d/%m/%Y")
 
-    # Verifiche: una per ogni <div class="documento daValidare" data-id=... data-nome=...>
+    # Verifiche: cerchiamo qualsiasi div che abbia sia data-id che data-nome.
+    # Fallback: iterare gli hidden input name=VerificaPreventivoID.
     verifiche: list[Verifica] = []
-    for div in soup.select("div.documento.daValidare"):
+    seen_vp: set[str] = set()
+
+    for div in soup.find_all(lambda t: t.name == "div" and t.has_attr("data-id") and t.has_attr("data-nome")):
         vp_id = (div.get("data-id") or "").strip()
         descr = (div.get("data-nome") or "").strip()
         doc_id = ""
         inp_doc = div.select_one('input[name="DocumentoID"][type="hidden"]')
         if inp_doc and inp_doc.get("value"):
             doc_id = inp_doc["value"].strip()
-        if not vp_id or not doc_id:
-            logging.warning("Dettaglio %s: verifica senza id/documento_id, salto (vp=%r doc=%r)",
-                            doc.detail_id, vp_id, doc_id)
-            continue
-        verifiche.append(Verifica(verifica_preventivo_id=vp_id, documento_id=doc_id, verifica_descrizione=descr))
+        if vp_id and doc_id and vp_id not in seen_vp:
+            seen_vp.add(vp_id)
+            verifiche.append(Verifica(verifica_preventivo_id=vp_id, documento_id=doc_id, verifica_descrizione=descr))
+
+    if not verifiche:
+        # Fallback: coppie VerificaPreventivoID + DocumentoID negli hidden input.
+        vp_inputs = soup.select('input[name="VerificaPreventivoID"][type="hidden"]')
+        doc_inputs = soup.select('input[name="DocumentoID"][type="hidden"]')
+        logging.debug("Dettaglio %s fallback: %d input VerificaPreventivoID, %d input DocumentoID",
+                      doc.detail_id, len(vp_inputs), len(doc_inputs))
+        for vp_inp in vp_inputs:
+            vp_id = (vp_inp.get("value") or "").strip()
+            if not vp_id or vp_id in seen_vp:
+                continue
+            # cerca DocumentoID con id che contiene vp_id, o il più vicino
+            doc_inp = soup.select_one(f'input[name="DocumentoID"][id*="{vp_id}"]')
+            doc_id = (doc_inp.get("value") or "").strip() if doc_inp else ""
+            if not doc_id:
+                continue
+            seen_vp.add(vp_id)
+            verifiche.append(Verifica(verifica_preventivo_id=vp_id, documento_id=doc_id, verifica_descrizione=""))
+
+    if not verifiche:
+        html_sample = resp.text[:2000].replace("\n", " ")
+        logging.debug("Dettaglio %s: 0 verifiche. HTML size=%d. Sample: %s",
+                      doc.detail_id, len(resp.text), html_sample)
 
     doc.codice_polizza = cod_pol
     return DocumentoCompleto(input=doc, data_annullo=data_annullo, verifiche=verifiche)
