@@ -13,6 +13,7 @@ import csv
 import logging
 import os
 import random
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -21,16 +22,21 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from openpyxl import Workbook, load_workbook
 
 API_BASE = "https://backofficeapi.24hassistance.com"
+MVC_BASE = "http://bo.24hassistance.com"
 TOKEN_TTL = timedelta(minutes=9)
 RATE_LIMIT_SECONDS = 0.5
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 30
 
 REQUIRED_COLS = ("VerificaPreventivoID", "CodicePreventivo", "CodicePolizza")
+
+RE_CODICE_PREVENTIVO = re.compile(r"\b([A-Z]{2}\d{2}[A-Z]{2,}\d+)\b")
+RE_CODICE_POLIZZA = re.compile(r"\b(24h\.\d+\.\d+)\b")
 
 
 @dataclass
@@ -128,6 +134,71 @@ def leggi_input(path: Path) -> list[DocumentoInput]:
     return [r for r in rows if r.verifica_preventivo_id]
 
 
+def fetch_from_list(
+    session: requests.Session,
+    cookies: dict[str, str],
+    data_da: str,
+    data_a: str = "",
+    stato: int = 0,
+    max_pages: int = 100,
+) -> list[DocumentoInput]:
+    """Scrape /RicercaDocumenti/Annullo paginando finché non trova righe nuove."""
+    url = f"{MVC_BASE}/RicercaDocumenti/Annullo"
+    seen: set[str] = set()
+    docs: list[DocumentoInput] = []
+
+    for page in range(max_pages):
+        form = {
+            "ControlloACampione": "False",
+            "TipoUtente": "0",
+            "DataDa": data_da,
+            "DataA": data_a,
+            "Stato": str(stato),
+            "NumeroPagina": str(page),
+            "Ordinamento": "ASC",
+            "OrdinamentoNomeColonna": "DocumentoCaricato",
+        }
+        logging.info("Fetch lista pagina %d (DataDa=%s DataA=%s)", page, data_da, data_a or "-")
+        resp = session.post(url, data=form, cookies=cookies, timeout=REQUEST_TIMEOUT,
+                            headers={"Content-Type": "application/x-www-form-urlencoded"})
+        resp.raise_for_status()
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        rows = soup.select("tr.preventivo")
+        logging.debug("Pagina %d: trovate %d righe", page, len(rows))
+        if not rows:
+            break
+
+        new_on_page = 0
+        for tr in rows:
+            vp_id = (tr.get("id") or "").strip()
+            if not vp_id or vp_id in seen:
+                continue
+            seen.add(vp_id)
+            new_on_page += 1
+
+            text = tr.get_text(" ", strip=True)
+            m_prev = RE_CODICE_PREVENTIVO.search(text)
+            m_pol = RE_CODICE_POLIZZA.search(text)
+            if not m_prev or not m_pol:
+                logging.warning(
+                    "Riga %s: codici non trovati nel testo (prev=%s pol=%s). Testo: %s",
+                    vp_id, bool(m_prev), bool(m_pol), text[:200],
+                )
+                continue
+            docs.append(DocumentoInput(
+                verifica_preventivo_id=vp_id,
+                codice_preventivo=m_prev.group(1),
+                codice_polizza=m_pol.group(1),
+            ))
+
+        if new_on_page == 0:
+            break
+
+    logging.info("Lista: raccolti %d documenti in %d pagine", len(docs), page + 1)
+    return docs
+
+
 def _backoff(attempt: int) -> None:
     delay = min(2 ** attempt, 30) + random.uniform(0, 0.5)
     logging.debug("Backoff %.2fs", delay)
@@ -207,6 +278,16 @@ def annulla_documento(
     return RisultatoAnnullo(esito="error", messaggio="max retries exceeded", **base)
 
 
+def _dump_docs(docs: list[DocumentoInput], path: Path) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Documenti"
+    ws.append(list(REQUIRED_COLS))
+    for d in docs:
+        ws.append([d.verifica_preventivo_id, d.codice_preventivo, d.codice_polizza])
+    wb.save(path)
+
+
 def scrivi_risultati(risultati: list[RisultatoAnnullo], path: Path) -> None:
     wb = Workbook()
     ws = wb.active
@@ -234,7 +315,14 @@ def setup_logging(log_file: Path, verbose: bool) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Annullo batch documenti Archimede 2")
-    parser.add_argument("--input", required=True, type=Path, help="File Excel (.xlsx) o CSV con documenti")
+    src = parser.add_mutually_exclusive_group(required=True)
+    src.add_argument("--input", type=Path, help="File Excel (.xlsx) o CSV con documenti")
+    src.add_argument("--data-da", type=str,
+                     help="Prende i documenti dalla pagina lista filtrando da questa data (dd/MM/yyyy)")
+    parser.add_argument("--data-a", type=str, default="",
+                        help="Data A opzionale (dd/MM/yyyy)")
+    parser.add_argument("--stato", type=int, default=0,
+                        help="Filtro stato per la ricerca (default 0)")
     parser.add_argument("--output", type=Path,
                         default=Path(f"esiti_{datetime.now():%Y%m%d_%H%M%S}.xlsx"))
     parser.add_argument("--log", type=Path,
@@ -243,6 +331,8 @@ def main() -> int:
                         help="Esegue realmente la chiamata (default: dry-run)")
     parser.add_argument("--env", type=Path, default=Path(".env"))
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--dump-docs", type=Path,
+                        help="Se indicato, scrive in questo xlsx i documenti trovati dalla lista (utile per review prima di --live)")
     args = parser.parse_args()
 
     setup_logging(args.log, args.verbose)
@@ -258,8 +348,31 @@ def main() -> int:
         logging.error("ARCH_USERNAME e ARCH_OPERATORE devono essere impostati nell'env (%s)", args.env)
         return 2
 
-    docs = leggi_input(args.input)
-    logging.info("Letti %d documenti da %s", len(docs), args.input)
+    session = requests.Session()
+
+    if args.input:
+        docs = leggi_input(args.input)
+        logging.info("Letti %d documenti da %s", len(docs), args.input)
+    else:
+        cookies = {
+            "ArchimedeMVC_SessionId": os.environ.get("ARCH_COOKIE_SESSION", ""),
+            ".ASPXAUTH": os.environ.get("ARCH_COOKIE_ASPXAUTH", ""),
+            "__RequestVerificationToken": os.environ.get("ARCH_COOKIE_RVT", ""),
+        }
+        if not cookies["ArchimedeMVC_SessionId"] or not cookies[".ASPXAUTH"]:
+            logging.error("Per --data-da servono i cookie in env: "
+                          "ARCH_COOKIE_SESSION, ARCH_COOKIE_ASPXAUTH, ARCH_COOKIE_RVT")
+            return 2
+        docs = fetch_from_list(
+            session, cookies,
+            data_da=args.data_da,
+            data_a=args.data_a,
+            stato=args.stato,
+        )
+        if args.dump_docs:
+            _dump_docs(docs, args.dump_docs)
+            logging.info("Documenti dumpati in %s", args.dump_docs)
+
     if not docs:
         logging.warning("Nessun documento da processare")
         return 0
@@ -267,7 +380,6 @@ def main() -> int:
     if not args.live:
         logging.warning("Modalità DRY-RUN: nessun annullo verrà eseguito. Usa --live per procedere.")
 
-    session = requests.Session()
     token_mgr = TokenManager(username, session)
 
     risultati: list[RisultatoAnnullo] = []
