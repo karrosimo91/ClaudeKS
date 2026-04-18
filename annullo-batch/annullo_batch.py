@@ -134,6 +134,14 @@ def leggi_input(path: Path) -> list[DocumentoInput]:
     return [r for r in rows if r.verifica_preventivo_id]
 
 
+def _mask(value: str) -> str:
+    if not value:
+        return "<VUOTO>"
+    if len(value) <= 6:
+        return "***"
+    return f"{value[:3]}...{value[-3:]} (len={len(value)})"
+
+
 def fetch_from_list(
     session: requests.Session,
     cookies: dict[str, str],
@@ -159,8 +167,23 @@ def fetch_from_list(
             "OrdinamentoNomeColonna": "DocumentoCaricato",
         }
         logging.info("Fetch lista pagina %d (DataDa=%s DataA=%s)", page, data_da, data_a or "-")
+        if page == 0:
+            logging.debug("Cookie inviati: session=%s aspxauth=%s rvt=%s",
+                          _mask(cookies.get("ArchimedeMVC_SessionId", "")),
+                          _mask(cookies.get(".ASPXAUTH", "")),
+                          _mask(cookies.get("__RequestVerificationToken", "")))
         resp = session.post(url, data=form, cookies=cookies, timeout=REQUEST_TIMEOUT,
-                            headers={"Content-Type": "application/x-www-form-urlencoded"})
+                            headers={"Content-Type": "application/x-www-form-urlencoded"},
+                            allow_redirects=False)
+        if resp.status_code in (301, 302, 303, 307):
+            loc = resp.headers.get("Location", "")
+            if "Login" in loc or "login" in loc:
+                raise RuntimeError(
+                    "Sessione MVC non valida: redirect a login (%s). "
+                    "Rigenera i cookie dal browser e aggiorna .env "
+                    "(ARCH_COOKIE_SESSION, ARCH_COOKIE_ASPXAUTH, ARCH_COOKIE_RVT)." % loc
+                )
+            raise RuntimeError(f"Redirect inatteso verso {loc}")
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")
