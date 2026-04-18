@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+esiti_*.xlsx
+annullo_*.log
